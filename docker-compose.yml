@@ -1,0 +1,117 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: url-crawler-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-url_crawler}
+      MYSQL_USER: ${MYSQL_USER:-crawler_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-crawler_password}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-u",
+          "root",
+          "-p${MYSQL_ROOT_PASSWORD:-root_password}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - crawler-network
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: url-crawler-backend
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-url_crawler}
+      MYSQL_USER: ${MYSQL_USER:-crawler_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-crawler_password}
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      JWT_DURATION: ${JWT_DURATION:-24h}
+      PORT: 8080
+    ports:
+      - "8080:8080"
+    networks:
+      - crawler-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  adminer:
+    image: adminer:latest
+    container_name: url-crawler-adminer
+    ports:
+      - "8081:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - crawler-network
+    restart: unless-stopped
+
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: url-crawler-seed
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-url_crawler}
+      MYSQL_USER: ${MYSQL_USER:-crawler_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-crawler_password}
+    command:
+      [
+        "./url-crawler",
+        "-username",
+        "${ADMIN_USERNAME:-admin}",
+        "-password",
+        "${ADMIN_PASSWORD:-adminpass}",
+      ]
+    networks:
+      - crawler-network
+    profiles:
+      - seed
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  crawler-network:
+    driver: bridge
