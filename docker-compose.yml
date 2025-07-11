@@ -60,7 +60,8 @@ services:
           "wget",
           "--no-verbose",
           "--tries=1",
-          "--spider",
+          "--quiet",
+          "--output-document=-",
           "http://localhost:8080/health",
         ]
       interval: 30s

@@ -79,8 +79,9 @@ func main() {
 		})
 	})
 
-	// Authentication endpoint
+	// Authentication endpoints
 	r.POST("/auth/login", api.LoginHandler(dbConn))
+	r.POST("/auth/signup", api.SignupHandler(dbConn))
 
 	// Protected routes
 	authorized := r.Group("/")

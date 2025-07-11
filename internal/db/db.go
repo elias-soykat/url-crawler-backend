@@ -24,17 +24,17 @@ const (
 // URL represents a web page to be crawled
 type URL struct {
 	ID            uint      `gorm:"primaryKey" json:"id"`
-	Address       string    `gorm:"size:255;index:idx_urls_address,length:191;not null" json:"address"`
-	Title         string    `gorm:"size:500" json:"title"`
-	HTMLVersion   string    `gorm:"size:10" json:"html_version"`
-	HeadingCounts string    `gorm:"type:text" json:"heading_counts"` // JSON: {"h1":2,"h2":1...}
+	Address       string    `gorm:"unique;not null;size:768" json:"address"`
+	Title         string    `json:"title"`
+	HTMLVersion   string    `json:"html_version"`
+	HeadingCounts string    `json:"heading_counts"` // JSON: {"h1":2,"h2":1...}
 	InternalLinks int       `json:"internal_links"`
 	ExternalLinks int       `json:"external_links"`
 	BrokenLinks   int       `json:"broken_links"`
-	BrokenList    string    `gorm:"type:text" json:"broken_list"` // JSON: [{"url":"...","code":404}]
+	BrokenList    string    `json:"broken_list"` // JSON: [{"url":"...","code":404}]
 	HasLoginForm  bool      `json:"has_login_form"`
-	Status        URLStatus `gorm:"size:191;default:'queued'" json:"status"`
-	Error         string    `gorm:"size:1000" json:"error"`
+	Status        URLStatus `gorm:"default:'queued'" json:"status"`
+	Error         string    `json:"error"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }

@@ -21,12 +21,25 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required,min=6"`
 }
 
+// SignupRequest represents the signup request payload
+type SignupRequest struct {
+	Username string `json:"username" binding:"required,min=3,max=100"`
+	Password string `json:"password" binding:"required,min=6"`
+}
+
 // LoginResponse represents the login response payload
 type LoginResponse struct {
 	Token     string    `json:"token"`
 	ExpiresAt time.Time `json:"expires_at"`
 	UserID    uint      `json:"user_id"`
 	Username  string    `json:"username"`
+}
+
+// SignupResponse represents the signup response payload
+type SignupResponse struct {
+	UserID   uint   `json:"user_id"`
+	Username string `json:"username"`
+	Message  string `json:"message"`
 }
 
 // Config holds authentication configuration
@@ -143,4 +156,65 @@ func ValidateToken(tokenString string, secret string) (jwt.MapClaims, error) {
 	}
 
 	return nil, jwt.ErrInvalidKey
+}
+
+// SignupHandler handles user registration
+func SignupHandler(dbConn *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req SignupRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			log.Printf("Signup validation error: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Invalid request format",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		// Sanitize input
+		req.Username = strings.TrimSpace(req.Username)
+		if req.Username == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Username cannot be empty"})
+			return
+		}
+
+		// Check if user already exists
+		existingUser, err := db.GetUserByUsername(dbConn, req.Username)
+		if err == nil && existingUser != nil {
+			log.Printf("Signup attempt with existing username: %s", req.Username)
+			c.JSON(http.StatusConflict, gin.H{"error": "Username already exists"})
+			return
+		} else if err != gorm.ErrRecordNotFound {
+			log.Printf("Database error during signup user check: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+			return
+		}
+
+		// Hash password
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			log.Printf("Failed to hash password during signup: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process password"})
+			return
+		}
+
+		// Create new user
+		newUser := db.User{
+			Username: req.Username,
+			Password: string(hashedPassword),
+		}
+
+		if err := dbConn.Create(&newUser).Error; err != nil {
+			log.Printf("Failed to create user: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+			return
+		}
+
+		log.Printf("Successfully created user: %s (ID: %d)", newUser.Username, newUser.ID)
+		c.JSON(http.StatusCreated, SignupResponse{
+			UserID:   newUser.ID,
+			Username: newUser.Username,
+			Message:  "User created successfully",
+		})
+	}
 }
