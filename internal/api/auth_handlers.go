@@ -51,11 +51,6 @@ type Config struct {
 // NewAuthConfig creates a new auth configuration
 func NewAuthConfig() *Config {
 	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		log.Println("WARNING: JWT_SECRET not set, using default secret")
-		secret = "changeme"
-	}
-
 	duration := 24 * time.Hour
 	if durationStr := os.Getenv("JWT_DURATION"); durationStr != "" {
 		if parsed, err := time.ParseDuration(durationStr); err == nil {

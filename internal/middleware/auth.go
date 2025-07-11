@@ -124,10 +124,9 @@ func validateToken(tokenString, secret string) (jwt.MapClaims, error) {
 // getJWTSecret returns the JWT secret from environment variables
 func getJWTSecret() string {
 	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		log.Println("WARNING: JWT_SECRET not set, using default secret")
-		secret = "changeme"
-	}
+		if secret == "" {
+			log.Println("WARNING: JWT_SECRET not set, using default secret")
+		}
 	return secret
 }
 

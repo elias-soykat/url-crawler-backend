@@ -90,6 +90,8 @@ func PostURLHandler(dbConn *gorm.DB, crawlerService *crawler.Service) gin.Handle
 			return
 		}
 
+		
+
 		// Create new URL
 		url, err := db.CreateURL(dbConn, req.Address)
 		if err != nil {
