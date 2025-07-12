@@ -23,9 +23,10 @@ A high-performance Go backend service for crawling and analyzing web pages with 
 
 ### Prerequisites
 
-- [Go](https://go.dev/dl/)
-- [Docker](https://docs.docker.com/get-docker/)
-- [MySQL](https://dev.mysql.com/downloads/) (Local development only)
+- [Go](https://go.dev/dl/) (Programming Language)
+- [Docker](https://docs.docker.com/get-docker/) (Containerization)
+- [MySQL](https://dev.mysql.com/downloads/) (Database)
+- [Make](https://www.gnu.org/software/make/) (Build and Automation)
 
 ### 1. Clone & Setup
 
