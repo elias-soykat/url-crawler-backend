@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/sykell/url-crawler/internal/db"
+	"github.com/sykell/url-crawler/internal/service"
 )
 
 // Service represents the crawler service
@@ -152,7 +153,7 @@ func (s *Service) processURL(id uint) {
 	defer cancel()
 
 	// Get URL from database
-	url, err := db.GetURLByID(s.db, id)
+	url, err := service.GetURLByID(s.db, id)
 	if err != nil {
 		log.Printf("Failed to get URL %d: %v", id, err)
 		return
@@ -165,7 +166,7 @@ func (s *Service) processURL(id uint) {
 	}
 
 	// Update status to running
-	if err := db.UpdateURLStatus(s.db, id, db.StatusRunning, ""); err != nil {
+	if err := service.UpdateURLStatus(s.db, id, db.StatusRunning, ""); err != nil {
 		log.Printf("Failed to update URL %d status to running: %v", id, err)
 		return
 	}
@@ -174,7 +175,7 @@ func (s *Service) processURL(id uint) {
 	result, err := s.crawlWithContext(ctx, url.Address)
 	if err != nil {
 		log.Printf("Failed to crawl URL %d (%s): %v", id, url.Address, err)
-		if updateErr := db.UpdateURLStatus(s.db, id, db.StatusError, err.Error()); updateErr != nil {
+		if updateErr := service.UpdateURLStatus(s.db, id, db.StatusError, err.Error()); updateErr != nil {
 			log.Printf("Failed to update URL %d error status: %v", id, updateErr)
 		}
 		return
@@ -183,7 +184,7 @@ func (s *Service) processURL(id uint) {
 	// Update URL with results
 	if err := s.updateURLWithResults(id, result); err != nil {
 		log.Printf("Failed to update URL %d with results: %v", id, err)
-		if updateErr := db.UpdateURLStatus(s.db, id, db.StatusError, err.Error()); updateErr != nil {
+		if updateErr := service.UpdateURLStatus(s.db, id, db.StatusError, err.Error()); updateErr != nil {
 			log.Printf("Failed to update URL %d error status: %v", id, updateErr)
 		}
 		return
@@ -253,73 +254,67 @@ func (s *Service) parseDocument(doc *goquery.Document, baseAddress string) (*Cra
 
 // detectHTMLVersion detects the HTML version
 func (s *Service) detectHTMLVersion(doc *goquery.Document) string {
-	if doc.Find("!DOCTYPE").Length() > 0 {
+	// Check for HTML5 doctype
+	if doc.Find("html").Length() > 0 {
 		return "HTML5"
 	}
-	if strings.Contains(strings.ToLower(doc.Text()), "xhtml") {
-		return "XHTML"
-	}
-	return "HTML5"
+	return "HTML"
 }
 
-// countHeadings counts heading elements
+// countHeadings counts heading tags
 func (s *Service) countHeadings(doc *goquery.Document) map[string]int {
-	headings := make(map[string]int)
+	counts := make(map[string]int)
 	for i := 1; i <= 6; i++ {
-		tag := "h" + strconv.Itoa(i)
-		headings[tag] = doc.Find(tag).Length()
+		tag := fmt.Sprintf("h%d", i)
+		counts[tag] = doc.Find(tag).Length()
 	}
-	return headings
+	return counts
 }
 
-// detectLoginForm detects if the page has a login form
+// detectLoginForm detects if there's a login form
 func (s *Service) detectLoginForm(doc *goquery.Document) bool {
-	return doc.Find("form input[type='password']").Length() > 0
+	return doc.Find("input[type='password']").Length() > 0
 }
 
-// analyzeLinks analyzes all links on the page
+// analyzeLinks analyzes internal and external links
 func (s *Service) analyzeLinks(doc *goquery.Document, baseURL *url.URL) (internal, external int, brokenLinks []map[string]string) {
-	linksChecked := make(map[string]bool)
+	brokenLinks = make([]map[string]string, 0)
 	
-	doc.Find("a[href]").Each(func(i int, selection *goquery.Selection) {
-		href, exists := selection.Attr("href")
-		if !exists || href == "" || linksChecked[href] {
+	doc.Find("a[href]").Each(func(i int, sel *goquery.Selection) {
+		href, exists := sel.Attr("href")
+		if !exists || href == "" {
 			return
 		}
-		linksChecked[href] = true
 
+		// Parse the URL
 		linkURL, err := url.Parse(href)
 		if err != nil {
 			return
 		}
 
 		// Resolve relative URLs
-		if !linkURL.IsAbs() {
-			linkURL = baseURL.ResolveReference(linkURL)
-		}
+		resolvedURL := baseURL.ResolveReference(linkURL)
 
-		// Determine link type
-		if linkURL.Host != "" && linkURL.Host != baseURL.Host {
-			external++
-		} else {
+		// Check if it's internal or external
+		if resolvedURL.Host == baseURL.Host {
 			internal++
+		} else {
+			external++
 		}
 
-		// Check link accessibility for absolute URLs
-		if linkURL.Scheme != "" {
-			if code := s.checkLink(linkURL.String()); code >= 400 {
-				brokenLinks = append(brokenLinks, map[string]string{
-					"url":  linkURL.String(),
-					"code": strconv.Itoa(code),
-				})
-			}
+		// Check if link is broken (simplified check)
+		if statusCode := s.checkLink(resolvedURL.String()); statusCode >= 400 {
+			brokenLinks = append(brokenLinks, map[string]string{
+				"url":  resolvedURL.String(),
+				"code": strconv.Itoa(statusCode),
+			})
 		}
 	})
 
 	return internal, external, brokenLinks
 }
 
-// checkLink checks if a link is accessible
+// checkLink checks if a link is broken
 func (s *Service) checkLink(link string) int {
 	client := &http.Client{Timeout: 10 * time.Second}
 	

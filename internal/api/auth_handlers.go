@@ -12,7 +12,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
-	"github.com/sykell/url-crawler/internal/db"
+	"github.com/sykell/url-crawler/internal/service"
 )
 
 // LoginRequest represents the login request payload
@@ -87,7 +87,7 @@ func LoginHandler(dbConn *gorm.DB) gin.HandlerFunc {
 		}
 
 		// Get user from database
-		user, err := db.GetUserByUsername(dbConn, req.Username)
+		user, err := service.GetUserByUsername(dbConn, req.Username)
 		if err != nil {
 			if err == gorm.ErrRecordNotFound {
 				log.Printf("Login attempt with non-existent username: %s", req.Username)
@@ -174,7 +174,7 @@ func SignupHandler(dbConn *gorm.DB) gin.HandlerFunc {
 		}
 
 		// Check if user already exists
-		existingUser, err := db.GetUserByUsername(dbConn, req.Username)
+		existingUser, err := service.GetUserByUsername(dbConn, req.Username)
 		if err == nil && existingUser != nil {
 			log.Printf("Signup attempt with existing username: %s", req.Username)
 			c.JSON(http.StatusConflict, gin.H{"error": "Username already exists"})
@@ -194,14 +194,17 @@ func SignupHandler(dbConn *gorm.DB) gin.HandlerFunc {
 		}
 
 		// Create new user
-		newUser := db.User{
-			Username: req.Username,
-			Password: string(hashedPassword),
-		}
-
-		if err := dbConn.Create(&newUser).Error; err != nil {
+		if err := service.CreateUser(dbConn, req.Username, string(hashedPassword)); err != nil {
 			log.Printf("Failed to create user: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+			return
+		}
+
+		// Get the created user to return the ID
+		newUser, err := service.GetUserByUsername(dbConn, req.Username)
+		if err != nil {
+			log.Printf("Failed to fetch created user: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "User created but failed to fetch details"})
 			return
 		}
 

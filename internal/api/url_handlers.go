@@ -12,6 +12,8 @@ import (
 
 	"github.com/sykell/url-crawler/internal/crawler"
 	"github.com/sykell/url-crawler/internal/db"
+	"github.com/sykell/url-crawler/internal/middleware"
+	"github.com/sykell/url-crawler/internal/service"
 )
 
 // PostURLRequest represents the URL creation request
@@ -62,6 +64,19 @@ type BulkRequest struct {
 // PostURLHandler handles URL creation
 func PostURLHandler(dbConn *gorm.DB, crawlerService *crawler.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Get user from context
+		user, exists := c.Get("user")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			return
+		}
+		
+		userCtx, ok := user.(middleware.UserContext)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user context"})
+			return
+		}
+
 		var req PostURLRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			log.Printf("URL creation validation error: %v", err)
@@ -79,8 +94,8 @@ func PostURLHandler(dbConn *gorm.DB, crawlerService *crawler.Service) gin.Handle
 			return
 		}
 
-		// Check if URL already exists
-		existingURL, err := db.GetURLByAddress(dbConn, req.Address)
+		// Check if URL already exists for this user
+		existingURL, err := service.GetURLByAddress(dbConn, userCtx.UserID, req.Address)
 		if err == nil {
 			c.JSON(http.StatusConflict, gin.H{"error": "URL already exists", "id": existingURL.ID})
 			return
@@ -90,10 +105,8 @@ func PostURLHandler(dbConn *gorm.DB, crawlerService *crawler.Service) gin.Handle
 			return
 		}
 
-		
-
-		// Create new URL
-		url, err := db.CreateURL(dbConn, req.Address)
+		// Create new URL for this user
+		url, err := service.CreateURL(dbConn, userCtx.UserID, req.Address)
 		if err != nil {
 			log.Printf("Failed to create URL: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save URL"})
@@ -106,7 +119,7 @@ func PostURLHandler(dbConn *gorm.DB, crawlerService *crawler.Service) gin.Handle
 			// Don't fail the request, just log the error
 		}
 
-		log.Printf("Created new URL: %s (ID: %d)", req.Address, url.ID)
+		log.Printf("Created new URL: %s (ID: %d) for user %d", req.Address, url.ID, userCtx.UserID)
 		c.JSON(http.StatusCreated, url)
 	}
 }
@@ -114,6 +127,19 @@ func PostURLHandler(dbConn *gorm.DB, crawlerService *crawler.Service) gin.Handle
 // ListURLsHandler handles URL listing with pagination and search
 func ListURLsHandler(dbConn *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Get user from context
+		user, exists := c.Get("user")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			return
+		}
+		
+		userCtx, ok := user.(middleware.UserContext)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user context"})
+			return
+		}
+
 		// Parse pagination parameters
 		page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
 		if err != nil || page < 1 {
@@ -143,8 +169,8 @@ func ListURLsHandler(dbConn *gorm.DB) gin.HandlerFunc {
 		search := strings.TrimSpace(c.Query("q"))
 		status := strings.TrimSpace(c.Query("status"))
 
-		// Build query
-		query := dbConn.Model(&db.URL{})
+		// Build query - filter by user ID
+		query := dbConn.Model(&db.URL{}).Where("user_id = ?", userCtx.UserID)
 		
 		if search != "" {
 			query = query.Where("address LIKE ? OR title LIKE ?", "%"+search+"%", "%"+search+"%")
@@ -189,6 +215,19 @@ func ListURLsHandler(dbConn *gorm.DB) gin.HandlerFunc {
 // GetURLHandler handles retrieving a single URL
 func GetURLHandler(dbConn *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Get user from context
+		user, exists := c.Get("user")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			return
+		}
+		
+		userCtx, ok := user.(middleware.UserContext)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user context"})
+			return
+		}
+
 		idStr := c.Param("id")
 		id, err := strconv.ParseUint(idStr, 10, 32)
 		if err != nil {
@@ -196,13 +235,14 @@ func GetURLHandler(dbConn *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		url, err := db.GetURLByID(dbConn, uint(id))
+		// Get URL by ID and user to ensure user can only access their own URLs
+		url, err := service.GetURLByIDAndUser(dbConn, uint(id), userCtx.UserID)
 		if err != nil {
 			if err == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
 				return
 			}
-			log.Printf("Failed to fetch URL %d: %v", id, err)
+			log.Printf("Failed to fetch URL %d for user %d: %v", id, userCtx.UserID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 			return
 		}
@@ -251,6 +291,19 @@ func GetURLHandler(dbConn *gorm.DB) gin.HandlerFunc {
 // BulkHandler handles bulk operations on URLs
 func BulkHandler(dbConn *gorm.DB, crawlerService *crawler.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Get user from context
+		user, exists := c.Get("user")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			return
+		}
+		
+		userCtx, ok := user.(middleware.UserContext)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user context"})
+			return
+		}
+
 		var req BulkRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			log.Printf("Bulk operation validation error: %v", err)
@@ -272,8 +325,8 @@ func BulkHandler(dbConn *gorm.DB, crawlerService *crawler.Service) gin.HandlerFu
 
 		switch req.Action {
 		case "rerun":
-			// Reset URLs to queued status
-			result := dbConn.Model(&db.URL{}).Where("id IN ?", req.IDs).Updates(map[string]interface{}{
+			// Reset URLs to queued status - only for URLs owned by the user
+			result := dbConn.Model(&db.URL{}).Where("id IN ? AND user_id = ?", req.IDs, userCtx.UserID).Updates(map[string]interface{}{
 				"status": db.StatusQueued,
 				"error":  "",
 			})
@@ -290,8 +343,8 @@ func BulkHandler(dbConn *gorm.DB, crawlerService *crawler.Service) gin.HandlerFu
 			}
 
 		case "delete":
-			// Delete URLs
-			result := dbConn.Delete(&db.URL{}, req.IDs)
+			// Delete URLs - only URLs owned by the user
+			result := dbConn.Where("id IN ? AND user_id = ?", req.IDs, userCtx.UserID).Delete(&db.URL{})
 			affected = result.RowsAffected
 			err = result.Error
 
@@ -306,7 +359,7 @@ func BulkHandler(dbConn *gorm.DB, crawlerService *crawler.Service) gin.HandlerFu
 			return
 		}
 
-		log.Printf("Bulk %s operation completed: %d URLs affected", req.Action, affected)
+		log.Printf("Bulk %s operation completed: %d URLs affected for user %d", req.Action, affected, userCtx.UserID)
 		c.JSON(http.StatusOK, gin.H{
 			"success":  true,
 			"action":   req.Action,
