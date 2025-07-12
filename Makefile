@@ -8,7 +8,6 @@ help:
 	@echo "  docker-build - Build Docker image"
 	@echo "  docker-run   - Run with Docker Compose"
 	@echo "  docker-stop  - Stop Docker Compose services"
-	@echo "  seed         - Seed the database"
 	@echo "  logs         - View all logs"
 	@echo "  logs-backend - View backend logs"
 	@echo "  logs-mysql   - View MySQL logs"
@@ -31,10 +30,6 @@ docker-stop:
 	@echo "Stopping Docker Compose services..."
 	docker compose down
 
-# Seed the database
-seed:
-	@echo "Seeding database..."
-	docker compose --profile seed up seed
 
 # View logs
 logs:
